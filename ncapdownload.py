@@ -86,18 +86,21 @@ test_info_dict = json.loads(get_test_info.text)
 test_info_result = test_info_dict["Results"][0]
 
 ## TODO: make the following in a function?
-# Get Front Crash test ID
-front_test_photo = test_info_result["FrontCrashPicture"]
-front_test_id = front_test_photo[front_test_photo.rindex("/")+2:front_test_photo.rindex("P")]
+def get_test_id(test_info):
 
-# Get Side MDB test ID
-side_mdb_test_photo = test_info_result["SideCrashPicture"]
-side_mdb_test_id = side_mdb_test_photo[side_mdb_test_photo.rindex("/")+2:side_mdb_test_photo.rindex("P")]
+    test_mode = ["FrontCrashPicture", "SideCrashPicture", "SidePolePicture"]
+    test_id = []
 
-# Get Side Pole test ID
-side_pole_test_photo = test_info_result["SidePolePicture"]
-side_pole_test_id = side_pole_test_photo[side_pole_test_photo.rindex("/")+2:side_pole_test_photo.rindex("P")]
+    for i in test_mode:
+        test_photo = test_info[i]
+        test_id.append(test_photo[test_photo.rindex("/")+2:test_photo.rindex("P")])
 
+    return test_id
+
+test_id = get_test_id(test_info_result)
+front_test_id = test_id[0]
+side_mdb_test_id = test_id[1]
+side_pole_test_id = test_id[2]
 
 # Create folder structure
 
@@ -120,6 +123,10 @@ lev2_folder.append(f"{lev1_folder}/{side_pole_test_id} - {selected_year.upper()}
 for x in lev2_folder:
     os.mkdir(x)
 
+front_folder = lev2_folder[0]
+side_mdb_folder = lev2_folder[1]
+side_pole_folder = lev2_folder[2]
+
 # Third level folder: DATA, PHOTOS, VIDEO
 lev3_folder = ["DATA", "PHOTOS", "VIDEO"]
 
@@ -127,6 +134,22 @@ for x in lev2_folder:
     for y in lev3_folder:
         os.mkdir(f"{x}/{y}")
 
+# Get filename of report from table on webpage
+def get_report_name(test_id):
+    webpage_url = f"https://www-nrd.nhtsa.dot.gov/database/VSR/SearchMedia.aspx?database=v&tstno={test_id}&mediatype=r&r_tstno={test_id}"
+    get_webpage = requests.get(webpage_url)
+    soup = BeautifulSoup(get_webpage.content, 'html.parser')
+    tb = soup.find('table', id="tblData")
+    report_name = tb.find_all('td')[2].text.replace("&nbsp", "").strip()
+
+    return report_name
+
+# Download report from database using test ID
+def get_report(test_id, report_path):
+    report_url = f"https://www-nrd.nhtsa.dot.gov/database/MEDIA/GetMedia.aspx?tstno={test_id}&index=1&database=V&type=R"
+    r = requests.get(report_url)
+    with open(f"{report_path}/{get_report_name(test_id)}", "wb") as f:
+        f.write(r.content)
 
 ## TODO: make the following a function with the test ID as the input.
 # Download test data
@@ -135,3 +158,5 @@ def download_data(test_id):
     crash_data_tdms = database_url + "tdms"
     crash_data_xml = database_url + "xml"
     crash_data_json = database_url + "json"
+
+    report_url = f"https://www-nrd.nhtsa.dot.gov/database/MEDIA/GetMedia.aspx?tstno={test_id}&index=1&database=V&type=R"
