@@ -23,16 +23,20 @@ crash_video = f"https://www-nrd.nhtsa.dot.gov/database/VSR/SearchMedia.aspx?data
 Get vehicle info from user
 '''
 
+def get_vehicle_info(api_endpoint):
+    get_vehicle = requests.get(vehicle_api + api_endpoint)
+    vehicle_dict = json.loads(get_vehicle.text)
+    vehicle_result = vehicle_dict["Results"]
+
+    return vehicle_result
+
 # Get full list of makes, which will be used to validate user input
 ## TODO: Make this a drop-down in a GUI
 vehicle_makes_api = "/vehicles/GetMakesForVehicleType/car?format=json"
+makes_result = get_vehicle_info(vehicle_makes_api)
 
+## TODO: Add validation for user input
 selected_year = input("Enter vehicle model year: ")
-
-## TODO: make the following in a function. Identical with next query/search
-get_makes = requests.get(vehicle_api + vehicle_makes_api)
-makes_dict = json.loads(get_makes.text)
-makes_result = makes_dict["Results"]
 
 selected_make = input("Enter vehicle make: ")
 
@@ -44,11 +48,7 @@ while next((item for item in makes_result if item["MakeName"].lower() == selecte
 # For the given make and model year, get all of the available models.
 ## TODO: Make this a drop-down, which is populated once the make is selected
 vehicle_models_api = f"/vehicles/GetModelsForMakeYear/make/{selected_make}/modelyear/{selected_year}?format=json"
-
-## TODO: make the following in a function
-get_models = requests.get(vehicle_api + vehicle_models_api)
-models_dict = json.loads(get_models.text)
-models_result = models_dict["Results"]
+models_result = get_vehicle_info(vehicle_models_api)
 
 selected_model = input("Enter vehicle model: ")
 
@@ -102,7 +102,9 @@ front_test_id = test_id[0]
 side_mdb_test_id = test_id[1]
 side_pole_test_id = test_id[2]
 
-# Create folder structure
+'''
+Create folder structure
+'''
 
 # Get top level folder
 root = tk.Tk()
@@ -134,13 +136,23 @@ for x in lev2_folder:
     for y in lev3_folder:
         os.mkdir(f"{x}/{y}")
 
+'''
+Download data
+'''
+
 # Get filename of report from table on webpage
 def get_report_name(test_id):
     webpage_url = f"https://www-nrd.nhtsa.dot.gov/database/VSR/SearchMedia.aspx?database=v&tstno={test_id}&mediatype=r&r_tstno={test_id}"
     get_webpage = requests.get(webpage_url)
     soup = BeautifulSoup(get_webpage.content, 'html.parser')
     tb = soup.find('table', id="tblData")
-    report_name = tb.find_all('td')[2].text.replace("&nbsp", "").strip()
+    success = 0
+    while success == 0:
+        try:
+            report_name = tb.find_all('td')[2].text.replace("&nbsp", "").strip()
+            success = 1
+        except:
+            pass
 
     return report_name
 
