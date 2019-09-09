@@ -1,13 +1,16 @@
 #!/usr/bin/python3.7
 
 import os
+import time
 import requests
 from bs4 import BeautifulSoup
 import json
 import pandas as pd ## TODO: Look into using pandas for JSON parsing
 import tkinter as tk
 from tkinter.filedialog import askdirectory
-
+from selenium import webdriver
+from selenium.webdriver.support.ui import WebDriverWait
+from selenium.webdriver.support import expected_conditions
 
 # Set API endpoints
 vehicle_api = "https://vpic.nhtsa.dot.gov/api"
@@ -15,9 +18,11 @@ safety_ratings_api = "https://webapi.nhtsa.gov/api/SafetyRatings"
 
 crash_database = "https://www-nrd.nhtsa.dot.gov/database/VSR/veh/TestDetail.aspx?"
 
-crash_report = f"https://www-nrd.nhtsa.dot.gov/database/VSR/SearchMedia.aspx?database=v&tstno=10364&mediatype=r&r_tstno=10364"
-crash_photo = f"https://www-nrd.nhtsa.dot.gov/database/VSR/SearchMedia.aspx?database=v&tstno=10364&mediatype=p&p_tstno=10364"
-crash_video = f"https://www-nrd.nhtsa.dot.gov/database/VSR/SearchMedia.aspx?database=v&tstno=10364&mediatype=v&v_tstno=10364"
+'''
+crash_report = f"https://www-nrd.nhtsa.dot.gov/database/VSR/SearchMedia.aspx?database=v&tstno={test_id}&mediatype=r&r_tstno={test_id}"
+crash_photo = f"https://www-nrd.nhtsa.dot.gov/database/VSR/SearchMedia.aspx?database=v&tstno={test_id}&mediatype=p&p_tstno={test_id}"
+crash_video = f"https://www-nrd.nhtsa.dot.gov/database/VSR/SearchMedia.aspx?database=v&tstno={test_id}&mediatype=v&v_tstno={test_id}"
+'''
 
 '''
 Get vehicle info from user
@@ -114,13 +119,14 @@ root.destroy()
 
 # Top level folder: [Model Year] [Make] [Model]
 lev1_folder = f"{save_path}/{selected_year.upper()} {selected_make.upper()} {selected_model.upper()}"
+## TODO: add try/except to catch FileExistsError
 os.mkdir(lev1_folder)
 
 # Second Level folder: [Test ID] - [Model Year] [Make] [Model] - [Test Mode]
 lev2_folder = []
-lev2_folder.append(f"{lev1_folder}/{front_test_id} - {selected_year.upper()} {selected_make.upper()} {selected_model.upper()} - FRONT")
-lev2_folder.append(f"{lev1_folder}/{side_mdb_test_id} - {selected_year.upper()} {selected_make.upper()} {selected_model.upper()} - SIDE MDB")
-lev2_folder.append(f"{lev1_folder}/{side_pole_test_id} - {selected_year.upper()} {selected_make.upper()} {selected_model.upper()} - SIDE POLE")
+lev2_folder.append(f"{lev1_folder}/{front_test_id} - FRONT - {selected_year.upper()} {selected_make.upper()} {selected_model.upper()}")
+lev2_folder.append(f"{lev1_folder}/{side_mdb_test_id} - SIDE MDB - {selected_year.upper()} {selected_make.upper()} {selected_model.upper()}")
+lev2_folder.append(f"{lev1_folder}/{side_pole_test_id} - SIDE POLE - {selected_year.upper()} {selected_make.upper()} {selected_model.upper()}")
 
 for x in lev2_folder:
     os.mkdir(x)
@@ -136,39 +142,131 @@ for x in lev2_folder:
     for y in lev3_folder:
         os.mkdir(f"{x}/{y}")
 
-'''
-Download data
-'''
 
 # Get filename of report from table on webpage
-def get_report_name(test_id):
-    webpage_url = f"https://www-nrd.nhtsa.dot.gov/database/VSR/SearchMedia.aspx?database=v&tstno={test_id}&mediatype=r&r_tstno={test_id}"
+def get_file_name(webpage_url):
     get_webpage = requests.get(webpage_url)
-    soup = BeautifulSoup(get_webpage.content, 'html.parser')
-    tb = soup.find('table', id="tblData")
+    html_content = BeautifulSoup(get_webpage.content, 'html.parser')
+    tb = html_content.find('table', id="tblData")
     success = 0
     while success == 0:
         try:
-            report_name = tb.find_all('td')[2].text.replace("&nbsp", "").strip()
+            file_name = tb.find_all('td')[2].text.replace("&nbsp", "").strip()
             success = 1
         except:
             pass
 
-    return report_name
+    return file_name
+
+def get_file_names(webpage_url):
+    driver = webdriver.Firefox()
+    driver.get(webpage_url)
+
+    # Delay to allow for page to load
+    time.sleep(1)
+
+    file_names = []
+
+    status = 0
+
+    while status == 0:
+        # Get table, parse into pandas dataframe, extract photo names
+        table = driver.execute_script("return document.getElementById('tblData').outerHTML")
+        file_table = pd.read_html(table)[0]
+
+        for i in range(file_table.shape[0]):
+            file_names.append(file_table.iloc[i,2])
+
+        # Check if end of table --> if Next button is not present
+        if driver.execute_script("return document.getElementById('cmdNext')") is None:
+            status = 1
+            break
+
+
+        ready = ""
+        while ready != "complete":
+            ready = driver.execute_script("return document.readyState")
+
+        # Go to the next page --> act on the aspx form
+        driver.execute_script("document.forms['searchmedia'].__EVENTTARGET.value = 'cmdNext'")
+        driver.execute_script("document.forms['searchmedia'].__EVENTARGUMENT.value = ''")
+        driver.execute_script("document.forms['searchmedia'].submit()")
+
+        # Delay to allow for next page to load
+        time.sleep(1)
+
+        ready = ""
+        while ready != "complete":
+            ready = driver.execute_script("return document.readyState")
+
+        # The next button usually causes the page to crash, so go back and try again
+        success = 0
+        while success == 0:
+            try:
+                driver.find_element_by_id("tblData")
+                success = 1
+            except:
+                while driver.execute_script("return document.getElementById('cmdNext')") is None:
+                    driver.refresh()
+                    driver.switch_to.alert.accept()
+
+                    # Delay to allow for next page to load
+                    time.sleep(1)
+
+
+    driver.close()
+
+    return file_names
+
+
+'''
+Download report
+'''
 
 # Download report from database using test ID
-def get_report(test_id, report_path):
+def get_report(test_id, test_path):
     report_url = f"https://www-nrd.nhtsa.dot.gov/database/MEDIA/GetMedia.aspx?tstno={test_id}&index=1&database=V&type=R"
     r = requests.get(report_url)
-    with open(f"{report_path}/{get_report_name(test_id)}", "wb") as f:
+    with open(f"{test_path}/{get_file_name(report_url)}", "wb") as f:
         f.write(r.content)
+
+
+'''
+Download data
+'''
 
 ## TODO: make the following a function with the test ID as the input.
 # Download test data
-def download_data(test_id):
-    database_url = f"https://www-nrd.nhtsa.dot.gov/database/VSR/Download.aspx?tstno=10364&curno=&database=v&name=v{test_id}&format="
-    crash_data_tdms = database_url + "tdms"
-    crash_data_xml = database_url + "xml"
-    crash_data_json = database_url + "json"
+def get_data(test_id, test_path):
+    data_url = f"https://www-nrd.nhtsa.dot.gov/database/VSR/Download.aspx?tstno={test_id}&curno=&database=v&name=v{test_id}&format="
+    crash_data_formats = ["tdms", "xml", "json"]
 
-    report_url = f"https://www-nrd.nhtsa.dot.gov/database/MEDIA/GetMedia.aspx?tstno={test_id}&index=1&database=V&type=R"
+    data_path = f"{test_path}/DATA"
+
+    for i in range(len(crash_data_formats)):
+        url = data_url + crash_data_formats[i]
+        r = requests.get(url)
+        with open(f"{data_path}/v{test_id}{crash_data_formats[i]}.zip", "wb") as f:
+            f.write(r.content)
+
+
+'''
+Download images
+'''
+
+def download_images(test_id, test_path):
+    image_url = f"https://www-nrd.nhtsa.dot.gov/database/MEDIA/GetMedia.aspx?tstno={test_id}&index=1&database=V&type=P"
+    r = requests.get(image_url)
+    with open(f"{test_path}/{get_file_names(image_url)}", "wb") as f:
+        f.write(r.content)
+
+
+'''
+Download videos
+'''
+
+def get_video_names(test_id):
+    pass
+
+def download_videos(test_id):
+    pass
